@@ -1,0 +1,211 @@
+---
+title: 'Modelo Preditivo de Real State: Valor do Imóvel'
+subtitle: Regressão
+output:
+  html_document:
+    df_print: paged
+---
+# Introdução
+
+Este notebook é um exemplo de um modelo de predição de valores imobiliários. Os dados são provenientes dos suburbios de Boston, e estão disponíveis no site do Kaggle.
+
+A idéia é mostrar uma evolução contínua da construção do modelo, desde um modelo "cego" em que não há tratamento de variáveis e modificações significativas nos dados, até um modelo mais maduro, e dessa forma demonstrar o trabalho do analista em conhecer e transformar os dados até que um nível alto de precisão seja alcançado.
+
+O modelo final deve prever o valor de um imóvel, baseado em 13 variáveis disponíveis.
+
+## Informação sobre os dados
+
+```{r echo=TRUE}
+dt <- read.csv('data.csv')
+```
+
+São 514 observações de 14 variáveis, sendo que apenas uma delas é categórica e as demais são contínuas.
+
+A descrição de cada uma segue abaixo:
+
+- CRIM: índice de criminalidade per capita para o município
+- ZN: proporção de zoneamento para área residencial acima de 25 mil sq. ft.
+- INDUS: proporção de área industrial (exceto comercial) por cidade
+- CHAS: Variável de proximidade ao Rio Charles River (= 1 caso próximo, senão =0)
+- NOX: Índice de concentração de óxidos nítricos no ar (partes por 10 mil)
+- RM: média de cômodos por habitação
+- AGE: proporção de construções habitadas que foram construídas antes de 1940
+- DIS: distância ponderada entre 5 áreas principais de trabalho de Boston
+- RAD: Índice de acessibilidade a estradas radiais
+- TAX: Índice de impostos sobre propriedade por $10,000
+- PTRATIO: Razão aluno-professor por município
+- B: Índice de população negra
+- LSTAT: % da população na menor faixa de renda
+- MEDV: Valor médio de imóvel habitado, em milhares de USD
+
+# Análise Exploratória
+
+```{r EDA, echo=TRUE}
+# Pacotes necessários
+library(tidyverse)
+library(RColorBrewer)
+
+```
+
+Sumário dos dados:
+
+```{r echo=TRUE}
+summary(dt)
+```
+
+Há apenas 5 linhas em que os dados de RM não estão disponíveis. Aqui o tratamento dado será usar o número médio de cômodos no lugar dos "NA", e assim ter dados completos.
+
+```{r echo=TRUE}
+dt$RM[is.na(dt$RM)] <- mean(dt$RM, na.rm = TRUE)
+```
+
+E agora confirmando a estrutura dos dados, temos:
+
+```{r echo=TRUE}
+str(dt)
+```
+
+Onde pode-se observar que a variáveis "CHAS" está considerada como número inteiro. Para facilitar a modelagem dentro do R, será alterado para fator (factor)
+
+```{r echo=TRUE}
+dt$CHAS <- as.factor(dt$CHAS)
+```
+
+Agora que o básico foi feito, vamos dar uma olhada nos dados:
+
+```{r}
+head(dt)
+```
+
+Ainda olhando de forma geral os dados, vamos ver a correlação entre eles e também fazer um exame visual na sua distribuição.
+
+```{r}
+library(GGally)
+
+ggpairs(dt) + theme_minimal() 
+```
+
+É possível ver que a maioria dos dados não tem uma distribuição normal. Em um momento futuro veremos qual o impacto de transformações nesses dados para melhorar o modelo.
+
+Esta outra tabela mostra com mais clareza como está a correlação entre cada uma das 14 variáveis.
+
+```{r}
+library(corrplot)
+correl <- cor(dt[,-4]) # essa função cria uma matriz com as correlações, exceto a variável CHAS, que é categórica.
+
+corrplot(correl, method = 'color', tl.col = "black", tl.cex = 0.8) 
+```
+É possível ver alguns relacionamentos óbvios, como Maior taxa de criminalidade faz o preço dos imóveis cair, assim como índice de poluição.
+
+```{r}
+ggplot(dt, aes(CRIM, MEDV)) +
+  geom_point(alpha = 0.8, size = 3, color = 'lightgreen', fill = 'blue')+ 
+  theme_minimal() +
+  ggtitle("Preço Médio em função da taxa de criminalidade")
+
+ggplot(dt, aes(NOX, MEDV)) +
+  geom_point(alpha = 0.8, size = 3, color = 'lightgreen', fill = 'blue')+ 
+  theme_minimal() +
+  ggtitle("Preço Médio em função do índice de poluição")
+```
+
+
+Agora dando uma olhada mais específica na variável principal, que é MEDV, o valor do imóvel. Essa será nosso Y, ou variável dependente, no modelo.
+
+Primeiramente sua distrubuição num histograma:
+
+```{r}
+ggplot(dt, aes(MEDV)) + 
+  geom_histogram(bins = 80,fill = 'lightgreen'  ) + 
+  theme_minimal() + 
+  geom_rug(color = 'lightgreen') +
+  ggtitle('Distribuição do preço dos imóveis')
+```
+É possível ver que os dados possuem uma distribuição normal, porém há um conjunto de dados com valor alto, o que provavelmente significa uma mistura de dados. Solucionar esse ponto é outro item para melhoria no modelo.
+
+Um teste de normalidade, portanto, terá um resultado negativo
+:
+```{r}
+shapiro.test(dt$MEDV)
+```
+# Regressão Linear
+Abaixo construiremos o primeiro modelo de regressão linear, utilizando todas as variáveis do conjunto de dados, sem qualquer modificação:
+
+```{r}
+modelo.linear <- lm(MEDV ~ ., data = dt)
+summary(modelo.linear)
+```
+Com um resultado de R-Squared de 61.56%, e sem nenhuma modificação nas variáveis, até que pode-se considerar como um bom começo.
+
+Vemos que apenas a variável INDUS não mostra significância. Podemos, portanto, verificar se o modelo melhora quando a retiramos:
+
+
+
+```{r}
+modelo.linear2 <- lm(MEDV ~ ., data = dt[,-3])
+summary(modelo.linear2)
+```
+A melhora foi marginal, como 61.63%. Como boa prática, verificaremos como está a distribuição dos resíduos:
+
+
+```{r}
+plot(modelo.linear2, col = 'lightgreen')
+```
+
+Considerando que a distribuição de MEDV não é normal, os resíduos também mostraram variação. Essas correções são necessárias para melhorar a precisão do modelo.
+
+# Melhorias no modelo
+Os passos seguintes vão mostrar como outras modificações podem melhorar gradativamente os resultados de nosso modelo linear.
+
+### 1) MEDV - Preço médio do imóvel
+Conforme visto acima, a distribuição de MEDV não é normal, dado algum tipo de mistura de dados.
+
+```{r}
+summary(dt$MEDV)
+
+ggplot(dt, aes(MEDV)) + 
+  geom_boxplot( fill = 'lightgreen') + 
+  theme_minimal() + 
+  ggtitle('Boxplot de preço médio dos imóveis')
+
+```
+
+Vamos verificar o que há de diferente com os imóveis que possuem valor mais alto:
+
+```{r}
+quantile(dt$MEDV, probs = c(0, 0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1))
+```
+E complementar com um gráfico de densidade:
+
+
+```{r}
+ggplot(dt, aes(MEDV)) + 
+  geom_density(fill = 'lightgreen'  ) + 
+  theme_minimal() + 
+  geom_rug(color = 'lightgreen') +
+  ggtitle('Distribuição do preço dos imóveis')
+```
+
+Vamos utilizar uma transformação log(x)  dos dados e ve o resultado:
+
+```{r}
+MEDV2 <-log10(dt$MEDV)
+
+qqnorm(MEDV2, pch = 1, frame = FALSE, col = 'lightgreen')
+hist(MEDV2, col = 'lightgreen')
+
+```
+
+E agora observando o resultado no modelo:
+
+```{r}
+dt2 <- dt[,-3] # conforme o modelo anterior, retiramos a variável INDUS
+dt2$MEDV <- MEDV2 # usando dados transformados por logarítmo
+
+modelo.linear3 <- lm(MEDV ~ ., data = dt2)
+summary(modelo.linear3)
+```
+
+E com isso aumentamos nosso R-Squared significativamente, de 61.63% para 68.4%
+
+
